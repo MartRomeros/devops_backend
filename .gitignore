@@ -1,0 +1,18 @@
+# .gitignore para el repositorio backend DevOps
+
+# Variables de entorno (¡nunca subir al repo!)
+.env
+
+# Maven
+**/target/
+**/.mvn/repository/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

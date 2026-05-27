@@ -1,0 +1,81 @@
+services:
+
+  # ─────────────────────────────────────────
+  # PostgreSQL — base de datos compartida
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─────────────────────────────────────────
+  # Backend Ventas  (puerto 8082 - cambiado por conflicto con Oracle)
+  # ─────────────────────────────────────────
+  backend-ventas:
+    build:
+      context: ./back-Ventas_SpringBoot/Springboot-API-REST
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/backend-ventas:latest
+    container_name: backend_ventas
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_ENDPOINT: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME_VENTAS}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8082:8080"
+    networks:
+      - backend-net
+
+  # ─────────────────────────────────────────
+  # Backend Despachos  (puerto 8081)
+  # ─────────────────────────────────────────
+  backend-despachos:
+    build:
+      context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
+      dockerfile: Dockerfile
+    image: ${DOCKERHUB_USERNAME}/backend-despachos:latest
+    container_name: backend_despachos
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_ENDPOINT: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME_DESPACHOS}
+      DB_USERNAME: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "8081:8081"
+    networks:
+      - backend-net
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  backend-net:
+    driver: bridge
