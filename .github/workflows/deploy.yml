@@ -104,13 +104,13 @@ jobs:
 
             if ! command -v docker >/dev/null 2>&1; then
               sudo_run apt-get update
-              sudo_run apt-get install -y docker.io docker-compose-plugin curl ca-certificates
+              sudo_run apt-get install -y docker.io docker-compose-v2 curl ca-certificates
               sudo_run systemctl enable --now docker
             fi
 
             if ! docker compose version >/dev/null 2>&1; then
               sudo_run apt-get update
-              sudo_run apt-get install -y docker-compose-plugin
+              sudo_run apt-get install -y docker-compose-v2
             fi
 
             if ! command -v curl >/dev/null 2>&1; then
