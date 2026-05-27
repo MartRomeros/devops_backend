@@ -2,9 +2,9 @@
 
 ## Objetivo
 
-Actualizar el pipeline de GitHub Actions para que, al hacer push a la rama `main`, construya y publique las imagenes Docker de los backends en Docker Hub y despliegue la aplicacion en una instancia EC2 privada usando una EC2 publica como bastion.
+Actualizar el pipeline de GitHub Actions para que, al hacer push a la rama `main`, construya y publique las imagenes Docker de los backends en Docker Hub y despliegue cada backend en una EC2 privada distinta usando una EC2 publica como bastion.
 
-El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos contenedores backend en los puertos definidos por el proyecto.
+El despliegue debe dejar corriendo PostgreSQL y `backend-ventas` en una EC2 privada, y PostgreSQL y `backend-despachos` en otra EC2 privada.
 
 ## Contexto actual
 
@@ -16,7 +16,8 @@ El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos conten
 - El pipeline actual se ejecuta desde la rama `deploy`; esta mejora debe cambiar el disparador a `main`.
 - La topologia esperada en AWS es:
   - EC2 publica Ubuntu: bastion con acceso SSH desde GitHub Actions.
-  - EC2 privada Ubuntu: host final donde deben correr Docker, Docker Compose, PostgreSQL y los backends.
+  - EC2 privada Ubuntu de ventas: host final donde deben correr Docker, Docker Compose, PostgreSQL y `backend-ventas`.
+  - EC2 privada Ubuntu de despachos: host final donde deben correr Docker, Docker Compose, PostgreSQL y `backend-despachos`.
 - Los repositorios son publicos, por lo que la EC2 privada puede clonar y actualizar el codigo sin credenciales adicionales de Git.
 
 ## Alcance
@@ -28,8 +29,8 @@ El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos conten
   - `backend-despachos:latest`
   - `backend-despachos:<commit-sha>`
 - Conectarse por SSH desde GitHub Actions a la EC2 publica.
-- Desde la EC2 publica, conectarse por SSH a la EC2 privada.
-- En la EC2 privada, preparar o actualizar el directorio del proyecto.
+- Desde la EC2 publica, conectarse por SSH a cada EC2 privada.
+- En cada EC2 privada, preparar o actualizar el directorio del proyecto.
 - Validar si existen `git`, `docker` y Docker Compose; instalarlos si faltan.
 - Detectar si los comandos Docker requieren `sudo` y usarlo cuando corresponda.
 - Clonar el repositorio si no existe en la EC2 privada.
@@ -60,8 +61,8 @@ El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos conten
 4. GitHub Actions construye y publica las dos imagenes Docker.
 5. GitHub Actions se conecta por SSH a la EC2 publica.
 6. El workflow deja disponible en la EC2 publica la clave privada necesaria para conectar a la EC2 privada.
-7. Desde la EC2 publica se abre una conexion SSH hacia la EC2 privada.
-8. En la EC2 privada:
+7. Desde la EC2 publica se abre una conexion SSH hacia cada EC2 privada.
+8. En cada EC2 privada:
    - Se detecta si los comandos administrativos requieren `sudo`.
    - Se valida que existan `git`, `docker` y Docker Compose; si faltan, se instalan usando los paquetes compatibles con Ubuntu.
    - Se valida que Docker quede activo.
@@ -69,15 +70,15 @@ El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos conten
    - Se actualiza el repositorio publico si ya existe.
    - Se escribe `.env` con los valores productivos.
    - Se ejecuta `docker compose up -d postgres` para asegurar que la base este disponible.
-   - Se ejecuta `docker compose pull backend-ventas backend-despachos`.
-   - Se ejecuta `docker compose up -d --no-deps --force-recreate backend-ventas backend-despachos`.
+   - Se ejecuta `docker compose pull <backend-asignado>`.
+   - Se ejecuta `docker compose up -d --no-deps --force-recreate <backend-asignado>`.
    - Se limpian imagenes antiguas sin eliminar volumenes.
 9. El pipeline valida que los contenedores queden corriendo.
 
 ## Reglas de negocio y operacion
 
 - La rama productiva para este pipeline es `main`.
-- La EC2 privada es el unico host donde deben correr los contenedores productivos.
+- Las EC2 privadas son los unicos hosts donde deben correr los contenedores productivos.
 - La EC2 publica actua solo como bastion.
 - Ambas EC2 son Ubuntu.
 - La clave privada para conectarse a la EC2 privada no debe quedar expuesta en logs.
@@ -115,9 +116,10 @@ El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos conten
 
 | Secret | Descripcion |
 |---|---|
-| `PRIVATE_EC2_HOST` | IP privada o DNS privado de la EC2 privada accesible desde la EC2 publica. |
-| `PRIVATE_EC2_USER` | Usuario SSH de la EC2 privada. |
-| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM completa que la EC2 publica usara para conectarse a la EC2 privada. |
+| `PRIVATE_EC2_VENTAS_HOST` | IP privada o DNS privado de la EC2 privada de ventas accesible desde la EC2 publica. |
+| `PRIVATE_EC2_DESPACHOS_HOST` | IP privada o DNS privado de la EC2 privada de despachos accesible desde la EC2 publica. |
+| `PRIVATE_EC2_USER` | Usuario SSH de ambas EC2 privadas. |
+| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM completa que la EC2 publica usara para conectarse a las EC2 privadas. |
 
 ### Repositorio
 
@@ -160,15 +162,15 @@ El despliegue debe dejar corriendo PostgreSQL con datos iniciales y ambos conten
 - Dado un push a `main`, cuando se ejecuta el workflow, entonces se construyen y pushean ambas imagenes a Docker Hub.
 - Dado que el build de una imagen falla, cuando corre el pipeline, entonces no se ejecuta el deploy.
 - Dado que las imagenes fueron publicadas, cuando inicia el deploy, entonces GitHub Actions se conecta primero a la EC2 publica.
-- Dado que la conexion a la EC2 publica funciona, cuando continua el deploy, entonces la EC2 publica se conecta a la EC2 privada.
+- Dado que la conexion a la EC2 publica funciona, cuando continua el deploy, entonces la EC2 publica se conecta a ambas EC2 privadas.
 - Dado que la EC2 privada no tiene `git`, `docker` o Docker Compose, cuando corre el deploy, entonces instala las herramientas faltantes en Ubuntu.
 - Dado que Docker requiere `sudo`, cuando corre el deploy, entonces los comandos Docker se ejecutan con `sudo`.
 - Dado que Docker no requiere `sudo`, cuando corre el deploy, entonces los comandos Docker se ejecutan sin `sudo`.
 - Dado que el proyecto no existe en la EC2 privada, cuando corre el deploy, entonces el repositorio se clona.
 - Dado que el proyecto ya existe en la EC2 privada, cuando corre el deploy, entonces el repositorio se actualiza sin borrar volumenes.
 - Dado que `.env` se genera desde secrets, cuando se ejecuta Docker Compose, entonces los backends reciben las variables `DB_ENDPOINT`, `DB_PORT`, `DB_NAME`, `DB_USERNAME` y `DB_PASSWORD`.
-- Dado un despliegue exitoso, cuando se consulta `docker compose ps` en la EC2 privada, entonces `postgres`, `backend-ventas` y `backend-despachos` aparecen corriendo.
-- Dado un despliegue exitoso, cuando se consultan los endpoints de salud o endpoints base de los backends desde la red permitida, entonces responden en `8082` y `8081`.
+- Dado un despliegue exitoso, cuando se consulta `docker compose ps` en la EC2 privada de ventas, entonces `postgres` y `backend-ventas` aparecen corriendo.
+- Dado un despliegue exitoso, cuando se consulta `docker compose ps` en la EC2 privada de despachos, entonces `postgres` y `backend-despachos` aparecen corriendo.
 - Dado un despliegue repetido, cuando termina el pipeline, entonces los datos de PostgreSQL persisten.
 - Dado que se publica `5432` en Docker Compose, cuando se revisa el Security Group, entonces no existe acceso externo directo a PostgreSQL.
 - El workflow no imprime secretos ni claves privadas en logs.

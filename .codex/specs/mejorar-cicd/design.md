@@ -2,9 +2,9 @@
 
 ## Resumen
 
-El pipeline seguira dividido en dos jobs: `build-and-push` y `deploy`. El primer job construye y publica las imagenes `backend-ventas` y `backend-despachos` en Docker Hub con tags `latest` y `<commit-sha>`. El segundo job se conectara por SSH a una EC2 publica Ubuntu usada como bastion y, desde ahi, abrira una conexion SSH hacia una EC2 privada Ubuntu donde se ejecutara el despliegue real.
+El pipeline seguira dividido en dos jobs: `build-and-push` y `deploy`. El primer job construye y publica las imagenes `backend-ventas` y `backend-despachos` en Docker Hub con tags `latest` y `<commit-sha>`. El segundo job se conectara por SSH a una EC2 publica Ubuntu usada como bastion y, desde ahi, abrira conexiones SSH hacia dos EC2 privadas Ubuntu.
 
-El despliegue en la EC2 privada sera idempotente: instalara herramientas faltantes, clonara el repositorio publico si no existe, actualizara el repositorio si existe, escribira `.env`, levantara PostgreSQL, descargara las imagenes `latest` y recreara solo los contenedores de backend sin eliminar el volumen de base de datos.
+El despliegue sera idempotente en cada EC2 privada: instalara herramientas faltantes, clonara el repositorio publico si no existe, actualizara el repositorio si existe, escribira `.env`, levantara PostgreSQL y recreara solo el backend asignado a esa instancia.
 
 ## Archivos que probablemente se modificaran
 
@@ -26,12 +26,10 @@ flowchart LR
   C --> E["Docker Hub"]
   D --> E
   B --> F["SSH a EC2 publica Ubuntu"]
-  F --> G["SSH a EC2 privada Ubuntu"]
-  G --> H["Repo publico actualizado"]
-  G --> I["Docker Compose"]
-  I --> J["PostgreSQL + volumen postgres_data"]
-  I --> K["backend-ventas :latest"]
-  I --> L["backend-despachos :latest"]
+  F --> G["SSH a EC2 privada ventas"]
+  F --> H["SSH a EC2 privada despachos"]
+  G --> I["PostgreSQL + backend-ventas"]
+  H --> J["PostgreSQL + backend-despachos"]
 ```
 
 La EC2 publica no ejecuta contenedores. Solo recibe temporalmente la clave privada necesaria para saltar a la EC2 privada y debe eliminarla al terminar, incluso si el despliegue falla. La EC2 privada es el unico host productivo.
@@ -46,18 +44,19 @@ La EC2 publica no ejecuta contenedores. Solo recibe temporalmente la clave priva
    - `${DOCKERHUB_USERNAME}/backend-despachos:${github.sha}`
 3. `deploy` abre SSH a `PUBLIC_EC2_HOST` con `PUBLIC_EC2_USER` y `PUBLIC_EC2_SSH_KEY`.
 4. En la EC2 publica se crea un archivo temporal `private_ec2_key.pem` con `PRIVATE_EC2_SSH_KEY` y permisos `600`.
-5. Desde la EC2 publica se ejecuta un script remoto en `PRIVATE_EC2_USER@PRIVATE_EC2_HOST`.
-6. En la EC2 privada:
+5. Desde la EC2 publica se ejecuta un script remoto en `PRIVATE_EC2_USER@PRIVATE_EC2_VENTAS_HOST`.
+6. Desde la EC2 publica se ejecuta otro script remoto en `PRIVATE_EC2_USER@PRIVATE_EC2_DESPACHOS_HOST`.
+7. En cada EC2 privada:
    - Se define `SUDO=""` si Docker funciona sin privilegios, o `SUDO="sudo"` si requiere privilegios.
    - Se instala `git`, Docker Engine y Docker Compose si faltan.
    - Se clona `REPO_URL` en `/home/<PRIVATE_EC2_USER>/devops_backend` si no existe.
    - Se ejecuta `git fetch`, `git checkout main` y `git pull --ff-only origin main` si ya existe.
    - Se escribe `.env` con secrets productivos.
    - Se ejecuta `docker compose up -d postgres`.
-   - Se ejecuta `docker compose pull backend-ventas backend-despachos`.
-   - Se ejecuta `docker compose up -d --no-deps --force-recreate backend-ventas backend-despachos`.
-   - Se ejecutan validaciones con `docker compose ps` y checks HTTP locales contra `8082` y `8081`.
-7. En la EC2 publica se elimina la clave temporal.
+   - Se ejecuta `docker compose pull <backend-asignado>`.
+   - Se ejecuta `docker compose up -d --no-deps --force-recreate <backend-asignado>`.
+   - Se ejecuta `docker compose ps postgres <backend-asignado>`.
+8. En la EC2 publica se elimina la clave temporal.
 
 ## Cambios en base de datos
 
@@ -89,9 +88,10 @@ La instalacion debe usar comandos compatibles con Ubuntu y ejecutarse solo cuand
 | `PUBLIC_EC2_HOST` | IP publica o DNS del bastion. |
 | `PUBLIC_EC2_USER` | Usuario SSH de la EC2 publica. |
 | `PUBLIC_EC2_SSH_KEY` | Clave privada para conectar GitHub Actions con la EC2 publica. |
-| `PRIVATE_EC2_HOST` | IP privada o DNS privado de la EC2 privada. |
-| `PRIVATE_EC2_USER` | Usuario SSH de la EC2 privada. |
-| `PRIVATE_EC2_SSH_KEY` | Clave privada para conectar desde la EC2 publica a la EC2 privada. |
+| `PRIVATE_EC2_VENTAS_HOST` | IP privada o DNS privado de la EC2 privada de ventas. |
+| `PRIVATE_EC2_DESPACHOS_HOST` | IP privada o DNS privado de la EC2 privada de despachos. |
+| `PRIVATE_EC2_USER` | Usuario SSH de ambas EC2 privadas. |
+| `PRIVATE_EC2_SSH_KEY` | Clave privada para conectar desde la EC2 publica a ambas EC2 privadas. |
 | `REPO_URL` | URL publica del repositorio. |
 | `POSTGRES_USER` | Usuario PostgreSQL. |
 | `POSTGRES_PASSWORD` | Password PostgreSQL. |

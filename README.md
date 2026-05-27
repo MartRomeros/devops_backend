@@ -422,11 +422,11 @@ push → rama main
     ┌────▼─────────────────────────────┐
     │  Job 2: deploy                   │
     │  • SSH a EC2 pública (bastion)   │
-    │  • SSH EC2 pública -> privada    │
+    │  • SSH bastion -> 2 EC2 privadas │
     │  • Instala git/docker si falta   │
-    │  • Repo sync + .env en privada   │
-    │  • docker compose up postgres    │
-    │  • compose pull + recreate apps  │
+    │  • Verifica Docker Compose       │
+    │  • Ventas + PostgreSQL en EC2 A  │
+    │  • Despachos + PostgreSQL en B   │
     │  • SSH: docker image prune -f    │
     └──────────────────────────────────┘
 ```
@@ -442,9 +442,10 @@ Ve a **Settings → Secrets and variables → Actions** y agrega:
 | `PUBLIC_EC2_HOST` | IP pública o DNS de la EC2 pública (bastion) | `54.123.45.67` |
 | `PUBLIC_EC2_USER` | Usuario SSH de la EC2 pública | `ubuntu` |
 | `PUBLIC_EC2_SSH_KEY` | Clave privada PEM para entrar a la EC2 pública | `-----BEGIN RSA...` |
-| `PRIVATE_EC2_HOST` | IP privada o DNS privado de la EC2 privada | `10.0.2.15` |
-| `PRIVATE_EC2_USER` | Usuario SSH de la EC2 privada | `ubuntu` |
-| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM para salto EC2 pública -> privada | `-----BEGIN RSA...` |
+| `PRIVATE_EC2_VENTAS_HOST` | IP privada o DNS privado de la EC2 privada de ventas | `10.0.2.15` |
+| `PRIVATE_EC2_DESPACHOS_HOST` | IP privada o DNS privado de la EC2 privada de despachos | `10.0.3.20` |
+| `PRIVATE_EC2_USER` | Usuario SSH de ambas EC2 privadas | `ubuntu` |
+| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM para salto EC2 pública -> EC2 privadas | `-----BEGIN RSA...` |
 | `REPO_URL` | URL pública del repositorio a clonar/actualizar | `https://github.com/usuario/devops_backend.git` |
 | `POSTGRES_USER` | Usuario de PostgreSQL en producción | `postgres` |
 | `POSTGRES_PASSWORD` | Contraseña de PostgreSQL en producción | `tu_password_seguro` |
@@ -469,13 +470,13 @@ git push origin main
    - Usa cache de GitHub Actions para acelerar builds
 
 2. **Deploy:**
-   - Conecta a EC2 pública (bastion) y desde ahí a EC2 privada
-   - Instala `git`, `docker` y `docker compose` en EC2 privada solo si faltan
+   - Conecta a EC2 pública (bastion) y desde ahí a las dos EC2 privadas
+   - Instala `git`, `docker` y `docker compose` en cada EC2 privada solo si faltan
    - Detecta automáticamente si Docker requiere `sudo`
-   - Clona/actualiza el repositorio en EC2 privada
-   - Crea archivo `.env` en EC2 privada con los secrets
-   - Levanta PostgreSQL primero, luego descarga imágenes y recrea solo backends
-   - Verifica contenedores y endpoints `8081` / `8082`
+   - Clona/actualiza el repositorio en cada EC2 privada
+   - Crea archivo `.env` en cada EC2 privada con los secrets
+   - En la EC2 de ventas levanta `postgres` y `backend-ventas`
+   - En la EC2 de despachos levanta `postgres` y `backend-despachos`
    - Limpia imágenes antiguas para liberar espacio
 
 ---
@@ -722,7 +723,7 @@ backend-ventas:
 
 **Error:** `Permission denied (publickey)`
 
-**Solución:** Verifica que los secrets `PUBLIC_EC2_SSH_KEY` y `PRIVATE_EC2_SSH_KEY` contienen las claves PEM **completas**:
+**Solución:** Verifica que los secrets `PUBLIC_EC2_SSH_KEY` y `PRIVATE_EC2_SSH_KEY` contienen las claves PEM **completas**, y que `PRIVATE_EC2_VENTAS_HOST` / `PRIVATE_EC2_DESPACHOS_HOST` son alcanzables desde la EC2 pública:
 ```
 -----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA...

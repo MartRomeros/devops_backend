@@ -1,4 +1,4 @@
-# Tasks: Mejorar CI/CD para despliegue en EC2 privada
+# Tasks: Mejorar CI/CD para despliegue en dos EC2 privadas
 
 > **Para agentes ejecutores:** trabajar una tarea a la vez. No implementar fuera de los archivos indicados sin actualizar primero el design. No borrar volumenes de Docker. No usar `git reset --hard` en la EC2 privada.
 
@@ -15,7 +15,7 @@
 - Revisar que el README documente la lista completa de secrets finales.
 
 **Criterio de finalizacion:**
-- El workflow usa `PUBLIC_EC2_HOST`, `PUBLIC_EC2_USER`, `PUBLIC_EC2_SSH_KEY`, `PRIVATE_EC2_HOST`, `PRIVATE_EC2_USER` y `PRIVATE_EC2_SSH_KEY`.
+- El workflow usa `PUBLIC_EC2_HOST`, `PUBLIC_EC2_USER`, `PUBLIC_EC2_SSH_KEY`, `PRIVATE_EC2_VENTAS_HOST`, `PRIVATE_EC2_DESPACHOS_HOST`, `PRIVATE_EC2_USER` y `PRIVATE_EC2_SSH_KEY`.
 - `REPO_URL` queda documentado como URL publica del repositorio.
 
 ## Task 2: Mantener build y push con `latest` y SHA
@@ -37,9 +37,9 @@
 - Si falla build/push, deploy no se ejecuta.
 - El deploy operativo sigue usando las imagenes `:latest` definidas en `docker-compose.yml`.
 
-## Task 3: Implementar salto SSH EC2 publica -> EC2 privada
+## Task 3: Implementar salto SSH EC2 publica -> dos EC2 privadas
 
-**Objetivo:** hacer que GitHub Actions entre a la EC2 publica y desde ahi ejecute el despliegue en la EC2 privada.
+**Objetivo:** hacer que GitHub Actions entre a la EC2 publica y desde ahi ejecute el despliegue en las dos EC2 privadas.
 
 **Archivos esperados:**
 - Modificar: `.github/workflows/deploy.yml`
@@ -51,7 +51,7 @@
 
 **Criterio de finalizacion:**
 - El workflow se conecta a `PUBLIC_EC2_HOST`.
-- Desde la EC2 publica se conecta a `PRIVATE_EC2_HOST`.
+- Desde la EC2 publica se conecta a `PRIVATE_EC2_VENTAS_HOST` y `PRIVATE_EC2_DESPACHOS_HOST`.
 - La clave privada temporal de la EC2 privada se elimina al finalizar, incluso ante errores.
 
 ## Task 4: Preparar dependencias idempotentes en EC2 privada
@@ -148,7 +148,7 @@
 - Con secrets personalizados, el script crea los nombres indicados.
 - El cambio no elimina ni recrea `postgres_data`.
 
-## Task 9: Ordenar despliegue Docker Compose en EC2 privada
+## Task 9: Ordenar despliegue Docker Compose en cada EC2 privada
 
 **Objetivo:** levantar primero PostgreSQL, descargar imagenes nuevas y recrear solo backends.
 
@@ -156,35 +156,34 @@
 - Modificar: `.github/workflows/deploy.yml`
 
 **Tests requeridos:**
-- Revisar que el orden sea:
+- Revisar que el orden por cada EC2 privada sea:
   - `docker compose up -d postgres`
-  - `docker compose pull backend-ventas backend-despachos`
-  - `docker compose up -d --no-deps --force-recreate backend-ventas backend-despachos`
+  - `docker compose pull <backend-asignado>`
+  - `docker compose up -d --no-deps --force-recreate <backend-asignado>`
 - Revisar que no aparezca `docker compose down -v`.
 - Revisar que no se elimine `postgres_data`.
 
 **Criterio de finalizacion:**
 - PostgreSQL existe antes de recrear backends.
-- Los backends usan imagenes `latest` recien descargadas.
+- Cada backend usa su imagen `latest` recien descargada en su EC2 privada.
 - La base de datos persiste entre despliegues.
 
-## Task 10: Agregar validaciones finales del deploy
+## Task 10: Agregar verificacion final simple del deploy
 
-**Objetivo:** fallar el pipeline si los contenedores o endpoints no quedan funcionando.
+**Objetivo:** verificar que Docker Compose haya recibido la orden de levantar PostgreSQL y el backend asignado sin esperar endpoints HTTP.
 
 **Archivos esperados:**
 - Modificar: `.github/workflows/deploy.yml`
 
 **Tests requeridos:**
 - Revisar que el script ejecute `docker compose ps`.
-- Revisar que el script consulte backend ventas en `http://localhost:8082`.
-- Revisar que el script consulte backend despachos en `http://localhost:8081`.
-- Revisar que ante fallo se muestren logs recientes de `backend-ventas` y `backend-despachos`.
+- Revisar que el script no haga `curl` a los backends durante el deploy.
+- Revisar que la EC2 de ventas ejecute `docker compose ps postgres backend-ventas`.
+- Revisar que la EC2 de despachos ejecute `docker compose ps postgres backend-despachos`.
 
 **Criterio de finalizacion:**
-- El pipeline falla si un contenedor no queda corriendo.
-- El pipeline falla si los endpoints no responden.
-- Los logs de diagnostico no exponen secretos.
+- El pipeline levanta PostgreSQL y el backend asignado en cada EC2 privada.
+- El pipeline no espera endpoints HTTP, para evitar fallos por arranques lentos.
 
 ## Task 11: Actualizar documentacion de operacion
 
@@ -235,8 +234,9 @@
 **Tests requeridos:**
 - Hacer push a `main`.
 - Confirmar que `build-and-push` publica las cuatro etiquetas esperadas en Docker Hub.
-- Confirmar que `deploy` conecta GitHub Actions -> EC2 publica -> EC2 privada.
-- Confirmar que en EC2 privada `docker compose ps` muestra `postgres_db`, `backend_ventas` y `backend_despachos`.
+- Confirmar que `deploy` conecta GitHub Actions -> EC2 publica -> ambas EC2 privadas.
+- Confirmar que en la EC2 privada de ventas `docker compose ps` muestra `postgres_db` y `backend_ventas`.
+- Confirmar que en la EC2 privada de despachos `docker compose ps` muestra `postgres_db` y `backend_despachos`.
 - Confirmar endpoints:
   - `http://localhost:8082`
   - `http://localhost:8081`
@@ -244,5 +244,5 @@
 
 **Criterio de finalizacion:**
 - El workflow completo termina exitosamente.
-- Los contenedores productivos corren en la EC2 privada.
+- Los contenedores productivos corren separados en las dos EC2 privadas.
 - Docker Hub contiene tags `latest` y `<commit-sha>` para ambos backends.

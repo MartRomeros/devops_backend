@@ -53,12 +53,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Deploy via Public Bastion to Private EC2
+    name: Deploy via Public Bastion to Private EC2s
     runs-on: ubuntu-latest
     needs: build-and-push
 
     steps:
-      - name: Deploy through bastion host
+      - name: Deploy ventas and despachos through bastion host
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PUBLIC_EC2_HOST }}
@@ -80,7 +80,11 @@ jobs:
             PEM
             chmod 600 "$PRIVATE_KEY_PATH"
 
-            ssh -i "$PRIVATE_KEY_PATH" -o StrictHostKeyChecking=accept-new "${{ secrets.PRIVATE_EC2_USER }}@${{ secrets.PRIVATE_EC2_HOST }}" 'bash -se' <<'PRIVATE_EOF'
+            deploy_to_private() {
+              private_host="$1"
+              compose_service="$2"
+
+              ssh -i "$PRIVATE_KEY_PATH" -o StrictHostKeyChecking=accept-new "${{ secrets.PRIVATE_EC2_USER }}@$private_host" "COMPOSE_SERVICE='$compose_service' bash -se" <<'PRIVATE_EOF'
             set -euo pipefail
 
             if command -v sudo >/dev/null 2>&1; then
@@ -104,18 +108,13 @@ jobs:
 
             if ! command -v docker >/dev/null 2>&1; then
               sudo_run apt-get update
-              sudo_run apt-get install -y docker.io docker-compose-v2 curl ca-certificates
+              sudo_run apt-get install -y docker.io docker-compose-v2 || sudo_run apt-get install -y docker.io docker-compose-plugin
               sudo_run systemctl enable --now docker
             fi
 
             if ! docker compose version >/dev/null 2>&1; then
               sudo_run apt-get update
-              sudo_run apt-get install -y docker-compose-v2
-            fi
-
-            if ! command -v curl >/dev/null 2>&1; then
-              sudo_run apt-get update
-              sudo_run apt-get install -y curl
+              sudo_run apt-get install -y docker-compose-v2 || sudo_run apt-get install -y docker-compose-plugin
             fi
 
             if command -v systemctl >/dev/null 2>&1; then
@@ -126,7 +125,7 @@ jobs:
 
             if docker ps >/dev/null 2>&1; then
               DOCKER_PREFIX=()
-            elif sudo docker ps >/dev/null 2>&1; then
+            elif [ -n "$SUDO_BIN" ] && sudo docker ps >/dev/null 2>&1; then
               DOCKER_PREFIX=(sudo)
             else
               echo "Docker is installed but not usable by this user."
@@ -151,36 +150,14 @@ jobs:
             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
             EOF
 
-            wait_for_http() {
-              local url="$1"
-              local service_name="$2"
-              local attempts="${3:-30}"
-              local sleep_seconds="${4:-10}"
-              local attempt=1
-
-              while [ "$attempt" -le "$attempts" ]; do
-                if curl -fsS "$url" >/dev/null; then
-                  echo "$service_name is responding on attempt $attempt/$attempts"
-                  return 0
-                fi
-
-                echo "Waiting for $service_name ($attempt/$attempts)..."
-                sleep "$sleep_seconds"
-                attempt=$((attempt + 1))
-              done
-
-              echo "$service_name did not become ready in time."
-              "${DOCKER_PREFIX[@]}" docker compose logs --tail=100 "$service_name"
-              return 1
-            }
-
             "${DOCKER_PREFIX[@]}" docker compose up -d postgres
-            "${DOCKER_PREFIX[@]}" docker compose pull backend-ventas backend-despachos
-            "${DOCKER_PREFIX[@]}" docker compose up -d --no-deps --force-recreate backend-ventas backend-despachos
-
-            "${DOCKER_PREFIX[@]}" docker compose ps
-            wait_for_http "http://localhost:8082/api/v1/ventas" "backend-ventas"
-            wait_for_http "http://localhost:8081/api/v1/despachos" "backend-despachos"
+            "${DOCKER_PREFIX[@]}" docker compose pull "$COMPOSE_SERVICE"
+            "${DOCKER_PREFIX[@]}" docker compose up -d --no-deps --force-recreate "$COMPOSE_SERVICE"
+            "${DOCKER_PREFIX[@]}" docker compose ps postgres "$COMPOSE_SERVICE"
 
             "${DOCKER_PREFIX[@]}" docker image prune -f
             PRIVATE_EOF
+            }
+
+            deploy_to_private "${{ secrets.PRIVATE_EC2_VENTAS_HOST }}" "backend-ventas"
+            deploy_to_private "${{ secrets.PRIVATE_EC2_DESPACHOS_HOST }}" "backend-despachos"
