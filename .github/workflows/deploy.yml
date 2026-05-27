@@ -151,21 +151,36 @@ jobs:
             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
             EOF
 
+            wait_for_http() {
+              local url="$1"
+              local service_name="$2"
+              local attempts="${3:-30}"
+              local sleep_seconds="${4:-10}"
+              local attempt=1
+
+              while [ "$attempt" -le "$attempts" ]; do
+                if curl -fsS "$url" >/dev/null; then
+                  echo "$service_name is responding on attempt $attempt/$attempts"
+                  return 0
+                fi
+
+                echo "Waiting for $service_name ($attempt/$attempts)..."
+                sleep "$sleep_seconds"
+                attempt=$((attempt + 1))
+              done
+
+              echo "$service_name did not become ready in time."
+              "${DOCKER_PREFIX[@]}" docker compose logs --tail=100 "$service_name"
+              return 1
+            }
+
             "${DOCKER_PREFIX[@]}" docker compose up -d postgres
             "${DOCKER_PREFIX[@]}" docker compose pull backend-ventas backend-despachos
             "${DOCKER_PREFIX[@]}" docker compose up -d --no-deps --force-recreate backend-ventas backend-despachos
 
             "${DOCKER_PREFIX[@]}" docker compose ps
-
-            if ! curl -fsS "http://localhost:8082/api/v1/ventas" >/dev/null; then
-              "${DOCKER_PREFIX[@]}" docker compose logs --tail=100 backend-ventas
-              exit 1
-            fi
-
-            if ! curl -fsS "http://localhost:8081/api/v1/despachos" >/dev/null; then
-              "${DOCKER_PREFIX[@]}" docker compose logs --tail=100 backend-despachos
-              exit 1
-            fi
+            wait_for_http "http://localhost:8082/api/v1/ventas" "backend-ventas"
+            wait_for_http "http://localhost:8081/api/v1/despachos" "backend-despachos"
 
             "${DOCKER_PREFIX[@]}" docker image prune -f
             PRIVATE_EOF
