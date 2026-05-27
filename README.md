@@ -42,8 +42,7 @@ Proyecto completo de **microservicios Spring Boot + Frontend React**, completame
 │                        ┌────────▼──────────┐                    │
 │                        │  PostgreSQL 16    │  ← volumen         │
 │                        │  :5432            │    persistente     │
-│                        │  ├─ devops_db     │    postgres_data   │
-│                        │  └─ devops_db  │                    │
+│                        │  └─ devops_db     │    postgres_data   │
 │                        └───────────────────┘                    │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -241,16 +240,13 @@ axios.get("http://localhost:8081/api/v1/despachos")
 PostgreSQL Docker
   └── Databases
       ├── postgres (base de datos del sistema)
-      ├── devops_db       ← Órdenes de compra
-      │   └── Schemas
-      │       └── public
-      │           └── Tables
-      │               └── venta
-      └── devops_db    ← Despachos de órdenes
+      └── devops_db
           └── Schemas
               └── public
                   └── Tables
-                      └── despacho
+                      ├── productos
+                      ├── venta
+                      └── despachos
 ```
 
 ### Opción 2: psql (Línea de comandos)
@@ -272,8 +268,8 @@ SELECT * FROM venta; # Ver datos
 docker exec -it postgres_db psql -U postgres -d devops_db
 
 \dt
-\d despacho
-SELECT * FROM despacho;
+\d despachos
+SELECT * FROM despachos;
 ```
 
 ### Opción 3: Clientes GUI alternativos
@@ -285,7 +281,6 @@ SELECT * FROM despacho;
 **Cadena de conexión:**
 ```
 postgresql://postgres:Gonzalo2026%23@localhost:5432/devops_db
-postgresql://postgres:Gonzalo2026%23@localhost:5432/devops_db
 ```
 
 ---
@@ -294,35 +289,44 @@ postgresql://postgres:Gonzalo2026%23@localhost:5432/devops_db
 
 ### Base de datos: `devops_db`
 
-#### Tabla: `venta`
-Almacena las órdenes de compra/ventas de productos.
+#### Tabla: `productos`
+Catálogo de productos disponible para ventas.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `id_compra` | BIGINT (PK) | ID único de la orden de compra |
-| `direccion` | VARCHAR(255) | Dirección de entrega |
-| `fecha_compra` | TIMESTAMP | Fecha y hora de la compra |
-| `valor_total` | NUMERIC | Monto total de la orden |
+| `idProducto` | BIGINT (PK) | ID único del producto |
+| `nombreProducto` | VARCHAR(255) | Nombre del producto |
+| `descripcionProducto` | VARCHAR(255) | Descripción del producto |
+| `precioProducto` | INTEGER | Precio del producto |
+| `stockProducto` | INTEGER | Stock disponible |
 
 **Entidad JPA:**
 ```java
 @Entity
-@Table(name = "venta")
-public class Venta {
+@Table(name = "productos")
+public class Producto {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long idCompra;
-    
-    private String direccion;
-    private LocalDateTime fechaCompra;
-    private BigDecimal valorTotal;
+    private Long idProducto;
+    private String nombreProducto;
+    private String descripcionProducto;
+    private int precioProducto;
+    private int stockProducto;
 }
 ```
 
-### Base de datos: `devops_db`
+#### Tabla: `venta`
+Almacena las órdenes de compra/ventas.
 
-#### Tabla: `despacho`
-Almacena los despachos asociados a las órdenes de compra.
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id_venta` | BIGINT (PK) | ID único de la compra |
+| `direccion_compra` | VARCHAR(255) | Dirección de entrega |
+| `valor_compra` | INTEGER | Monto de la compra |
+| `fecha_compra` | DATE | Fecha de la compra |
+| `despacho_generado` | BOOLEAN | Indica si ya existe despacho |
+
+#### Tabla: `despachos`
+Almacena los despachos asociados a compras existentes.
 
 | Campo | Tipo | Descripción |
 |---|---|---|
@@ -337,18 +341,24 @@ Almacena los despachos asociados a las órdenes de compra.
 **Entidad JPA:**
 ```java
 @Entity
-@Table(name = "despacho")
+@Table(name = "despachos")
 public class Despacho {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id_despacho")
     private Long idDespacho;
-    
-    private Long idCompra;  // Relación con venta
+
+    @Column(name = "id_compra")
+    private Long idCompra;
+    @Column(name = "direccion_compra")
     private String direccionCompra;
+    @Column(name = "fecha_despacho")
     private LocalDate fechaDespacho;
+    @Column(name = "patente_camion")
     private String patenteCamion;
-    private Boolean entregado;
-    private Integer intento;
+    @Column(name = "valor_compra")
+    private Long valorCompra;
+    private boolean entregado;
+    private int intento;
 }
 ```
 
@@ -420,11 +430,11 @@ push → rama main
     ┌────▼─────────────────────────────┐
     │  Job 2: deploy                   │
     │  • SSH a EC2 pública (bastion)   │
-    │  • SSH bastion -> 2 EC2 privadas │
+    │  • SSH bastion -> EC2 privada    │
     │  • Instala git/docker si falta   │
     │  • Verifica Docker Compose       │
-    │  • Ventas + PostgreSQL en EC2 A  │
-    │  • Despachos + PostgreSQL en B   │
+    │  • PostgreSQL + ambos backends   │
+    │  • en una sola EC2 privada       │
     │  • SSH: docker image prune -f    │
     └──────────────────────────────────┘
 ```
@@ -440,10 +450,9 @@ Ve a **Settings → Secrets and variables → Actions** y agrega:
 | `PUBLIC_EC2_HOST` | IP pública o DNS de la EC2 pública (bastion) | `54.123.45.67` |
 | `PUBLIC_EC2_USER` | Usuario SSH de la EC2 pública | `ubuntu` |
 | `PUBLIC_EC2_SSH_KEY` | Clave privada PEM para entrar a la EC2 pública | `-----BEGIN RSA...` |
-| `PRIVATE_EC2_VENTAS_HOST` | IP privada o DNS privado de la EC2 privada de ventas | `10.0.2.15` |
-| `PRIVATE_EC2_DESPACHOS_HOST` | IP privada o DNS privado de la EC2 privada de despachos | `10.0.3.20` |
-| `PRIVATE_EC2_USER` | Usuario SSH de ambas EC2 privadas | `ubuntu` |
-| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM para salto EC2 pública -> EC2 privadas | `-----BEGIN RSA...` |
+| `PRIVATE_EC2_BACKEND_HOST` | IP privada o DNS privado de la EC2 backend | `10.0.2.15` |
+| `PRIVATE_EC2_USER` | Usuario SSH de la EC2 privada backend | `ubuntu` |
+| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM para salto EC2 pública -> EC2 privada | `-----BEGIN RSA...` |
 | `REPO_URL` | URL pública del repositorio a clonar/actualizar | `https://github.com/usuario/devops_backend.git` |
 | `POSTGRES_USER` | Usuario de PostgreSQL en producción | `postgres` |
 | `POSTGRES_PASSWORD` | Contraseña de PostgreSQL en producción | `tu_password_seguro` |
@@ -467,13 +476,12 @@ git push origin main
    - Usa cache de GitHub Actions para acelerar builds
 
 2. **Deploy:**
-   - Conecta a EC2 pública (bastion) y desde ahí a las dos EC2 privadas
-   - Instala `git`, `docker` y `docker compose` en cada EC2 privada solo si faltan
+   - Conecta a EC2 pública (bastion) y desde ahí a la EC2 privada de backend
+   - Instala `git`, `docker` y `docker compose` en la EC2 privada solo si faltan
    - Detecta automáticamente si Docker requiere `sudo`
-   - Clona/actualiza el repositorio en cada EC2 privada
-   - Crea archivo `.env` en cada EC2 privada con los secrets
-   - En la EC2 de ventas levanta `postgres` y `backend-ventas`
-   - En la EC2 de despachos levanta `postgres` y `backend-despachos`
+   - Clona/actualiza el repositorio en la EC2 privada
+   - Crea archivo `.env` en la EC2 privada con los secrets
+   - Levanta `postgres`, `backend-ventas` y `backend-despachos`
    - Limpia imágenes antiguas para liberar espacio
 
 ---
@@ -607,11 +615,8 @@ devops_backend/
 │   ├── vite.config.js
 │   └── tailwind.config.js
 │
-├── init-db/
-│   ├── 01_init.sh                        # Crea devops_db
-│   └── 01_init.sql                       # (Vacío, legacy MySQL)
-│
 ├── docker-compose.yml                    # Orquestación PostgreSQL + backends
+├── script.sql                            # Esquema y datos iniciales PostgreSQL
 ├── .env.example                          # Template de variables de entorno
 ├── .gitignore                            # Excluye .env, target/, node_modules/
 └── README.md                             # Este archivo
@@ -637,10 +642,10 @@ devops_backend/
 | Decisión | Justificación |
 |---|---|
 | **PostgreSQL 16-alpine** | Versión LTS estable + imagen Alpine (tamaño reducido ~80 MB) |
-| **Bases de datos separadas** | Aislamiento lógico; cada microservicio tiene su propio esquema y permisos |
-| **Script de inicialización `01_init.sh`** | PostgreSQL usa sintaxis diferente a MySQL (`CREATE DATABASE IF NOT EXISTS` no existe); usamos `\gexec` para ejecución condicional |
+| **Base de datos única `devops_db`** | Simplifica despliegue y permite coherencia directa entre ventas y despachos |
+| **Script de inicialización `script.sql`** | Define explícitamente tablas y datos seed para un entorno reproducible |
 | **`service_healthy` en depends_on** | Garantiza que PostgreSQL esté **completamente listo** (`pg_isready`) antes de que los backends intenten conectarse; evita errores de conexión en frío |
-| **Hibernate `ddl-auto=update`** | Auto-creación de tablas en desarrollo; las entidades JPA definen el esquema |
+| **Hibernate `ddl-auto=none`** | Evita que Hibernate altere tablas seedadas y deja a `script.sql` como fuente del esquema |
 
 ### Build y Deployment
 
@@ -720,7 +725,7 @@ backend-ventas:
 
 **Error:** `Permission denied (publickey)`
 
-**Solución:** Verifica que los secrets `PUBLIC_EC2_SSH_KEY` y `PRIVATE_EC2_SSH_KEY` contienen las claves PEM **completas**, y que `PRIVATE_EC2_VENTAS_HOST` / `PRIVATE_EC2_DESPACHOS_HOST` son alcanzables desde la EC2 pública:
+**Solución:** Verifica que los secrets `PUBLIC_EC2_SSH_KEY` y `PRIVATE_EC2_SSH_KEY` contienen las claves PEM **completas**, y que `PRIVATE_EC2_BACKEND_HOST` es alcanzable desde la EC2 pública:
 ```
 -----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA...
