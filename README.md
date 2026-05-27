@@ -42,8 +42,8 @@ Proyecto completo de **microservicios Spring Boot + Frontend React**, completame
 │                        ┌────────▼──────────┐                    │
 │                        │  PostgreSQL 16    │  ← volumen         │
 │                        │  :5432            │    persistente     │
-│                        │  ├─ ventas_db     │    postgres_data   │
-│                        │  └─ despachos_db  │                    │
+│                        │  ├─ devops_db     │    postgres_data   │
+│                        │  └─ devops_db  │                    │
 │                        └───────────────────┘                    │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -72,7 +72,7 @@ Proyecto completo de **microservicios Spring Boot + Frontend React**, completame
 ### Base de Datos
 - **PostgreSQL** 16-alpine
 - **Persistencia:** Volumen Docker `postgres_data`
-- **Bases de datos:** `ventas_db` y `despachos_db`
+- **Bases de datos:** `devops_db`
 
 ### DevOps
 - **Docker** + **Docker Compose** v2
@@ -86,9 +86,9 @@ Proyecto completo de **microservicios Spring Boot + Frontend React**, completame
 
 | Servicio | Puerto Local | Puerto Contenedor | Base de datos | Swagger UI | Descripción |
 |---|---|---|---|---|---|
-| **backend-ventas** | `8082` | `8080` | `ventas_db` | [/swagger-ui.html](http://localhost:8082/swagger-ui.html) | API de órdenes de compra/ventas |
-| **backend-despachos** | `8081` | `8081` | `despachos_db` | [/swagger-ui.html](http://localhost:8081/swagger-ui.html) | API de despachos y logística |
-| **PostgreSQL** | `5432` | `5432` | — | — | Base de datos relacional |
+| **backend-ventas** | `8082` | `8080` | `devops_db` | [/swagger-ui.html](http://localhost:8082/swagger-ui.html) | API de órdenes de compra/ventas |
+| **backend-despachos** | `8081` | `8081` | `devops_db` | [/swagger-ui.html](http://localhost:8081/swagger-ui.html) | API de despachos y logística |
+| **PostgreSQL** | `5432` | `5432` | `devops_db` | — | Base de datos centralizada |
 | **Frontend** | `5173` | — | — | — | Interfaz de usuario React |
 
 > ⚠️ **Nota importante:** El puerto de ventas se cambió de `8080` → `8082` debido a conflicto con Oracle TNS Listener en el entorno de desarrollo local.
@@ -241,12 +241,12 @@ axios.get("http://localhost:8081/api/v1/despachos")
 PostgreSQL Docker
   └── Databases
       ├── postgres (base de datos del sistema)
-      ├── ventas_db       ← Órdenes de compra
+      ├── devops_db       ← Órdenes de compra
       │   └── Schemas
       │       └── public
       │           └── Tables
       │               └── venta
-      └── despachos_db    ← Despachos de órdenes
+      └── devops_db    ← Despachos de órdenes
           └── Schemas
               └── public
                   └── Tables
@@ -256,8 +256,8 @@ PostgreSQL Docker
 ### Opción 2: psql (Línea de comandos)
 
 ```bash
-# Conectarse a ventas_db
-docker exec -it postgres_db psql -U postgres -d ventas_db
+# Conectarse a devops_db
+docker exec -it postgres_db psql -U postgres -d devops_db
 
 # Comandos útiles dentro de psql:
 \dt                  # Listar tablas
@@ -268,8 +268,8 @@ SELECT * FROM venta; # Ver datos
 ```
 
 ```bash
-# Conectarse a despachos_db
-docker exec -it postgres_db psql -U postgres -d despachos_db
+# Conectarse a devops_db
+docker exec -it postgres_db psql -U postgres -d devops_db
 
 \dt
 \d despacho
@@ -284,15 +284,15 @@ SELECT * FROM despacho;
 
 **Cadena de conexión:**
 ```
-postgresql://postgres:Gonzalo2026%23@localhost:5432/ventas_db
-postgresql://postgres:Gonzalo2026%23@localhost:5432/despachos_db
+postgresql://postgres:Gonzalo2026%23@localhost:5432/devops_db
+postgresql://postgres:Gonzalo2026%23@localhost:5432/devops_db
 ```
 
 ---
 
 ## 📊 Estructura de Datos
 
-### Base de datos: `ventas_db`
+### Base de datos: `devops_db`
 
 #### Tabla: `venta`
 Almacena las órdenes de compra/ventas de productos.
@@ -319,7 +319,7 @@ public class Venta {
 }
 ```
 
-### Base de datos: `despachos_db`
+### Base de datos: `devops_db`
 
 #### Tabla: `despacho`
 Almacena los despachos asociados a las órdenes de compra.
@@ -383,8 +383,7 @@ cp .env.example .env
 |---|---|---|
 | `POSTGRES_USER` | Usuario de PostgreSQL | `postgres` |
 | `POSTGRES_PASSWORD` | Contraseña de PostgreSQL | `Gonzalo2026#` |
-| `DB_NAME_VENTAS` | Nombre de la BD para ventas | `ventas_db` |
-| `DB_NAME_DESPACHOS` | Nombre de la BD para despachos | `despachos_db` |
+| `DB_NAME` | Nombre de la BD centralizada | `devops_db` |
 | `DOCKERHUB_USERNAME` | Tu usuario de Docker Hub | `tu_usuario_dockerhub` |
 
 ### Ejemplo de `.env`
@@ -392,8 +391,7 @@ cp .env.example .env
 ```ini
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=Gonzalo2026#
-DB_NAME_VENTAS=ventas_db
-DB_NAME_DESPACHOS=despachos_db
+DB_NAME=devops_db
 DOCKERHUB_USERNAME=tu_usuario_dockerhub
 ```
 
@@ -449,8 +447,7 @@ Ve a **Settings → Secrets and variables → Actions** y agrega:
 | `REPO_URL` | URL pública del repositorio a clonar/actualizar | `https://github.com/usuario/devops_backend.git` |
 | `POSTGRES_USER` | Usuario de PostgreSQL en producción | `postgres` |
 | `POSTGRES_PASSWORD` | Contraseña de PostgreSQL en producción | `tu_password_seguro` |
-| `DB_NAME_VENTAS` | Nombre BD ventas en producción | `ventas_db` |
-| `DB_NAME_DESPACHOS` | Nombre BD despachos en producción | `despachos_db` |
+| `DB_NAME` | Nombre BD centralizada en producción | `devops_db` |
 
 ### Workflow del pipeline
 
@@ -611,7 +608,7 @@ devops_backend/
 │   └── tailwind.config.js
 │
 ├── init-db/
-│   ├── 01_init.sh                        # Crea ventas_db y despachos_db
+│   ├── 01_init.sh                        # Crea devops_db
 │   └── 01_init.sql                       # (Vacío, legacy MySQL)
 │
 ├── docker-compose.yml                    # Orquestación PostgreSQL + backends

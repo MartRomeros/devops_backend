@@ -1,8 +1,4 @@
 services:
-
-  # ─────────────────────────────────────────
-  # PostgreSQL — base de datos compartida
-  # ─────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: postgres_db
@@ -10,14 +6,12 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
-      DB_NAME_VENTAS: ${DB_NAME_VENTAS}
-      DB_NAME_DESPACHOS: ${DB_NAME_DESPACHOS}
+      POSTGRES_DB: ${DB_NAME}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db:/docker-entrypoint-initdb.d:ro
+      - ./script.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - backend-net
     healthcheck:
@@ -26,9 +20,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # ─────────────────────────────────────────
-  # Backend Ventas  (puerto 8082 - cambiado por conflicto con Oracle)
-  # ─────────────────────────────────────────
   backend-ventas:
     build:
       context: ./back-Ventas_SpringBoot/Springboot-API-REST
@@ -42,17 +33,14 @@ services:
     environment:
       DB_ENDPOINT: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME_VENTAS}
+      DB_NAME: ${DB_NAME}
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "8082:8080"
+      - "8080:8080"
     networks:
       - backend-net
 
-  # ─────────────────────────────────────────
-  # Backend Despachos  (puerto 8081)
-  # ─────────────────────────────────────────
   backend-despachos:
     build:
       context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
@@ -66,7 +54,7 @@ services:
     environment:
       DB_ENDPOINT: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME_DESPACHOS}
+      DB_NAME: ${DB_NAME}
       DB_USERNAME: ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
@@ -76,8 +64,6 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
 
 networks:
   backend-net:
-    driver: bridge

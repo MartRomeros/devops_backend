@@ -53,12 +53,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Deploy via Public Bastion to Private EC2s
+    name: Deploy backend via public EC2 to private EC2
     runs-on: ubuntu-latest
     needs: build-and-push
 
     steps:
-      - name: Deploy ventas and despachos through bastion host
+      - name: Deploy backend stack through public EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PUBLIC_EC2_HOST }}
@@ -80,11 +80,7 @@ jobs:
             PEM
             chmod 600 "$PRIVATE_KEY_PATH"
 
-            deploy_to_private() {
-              private_host="$1"
-              compose_service="$2"
-
-              ssh -i "$PRIVATE_KEY_PATH" -o StrictHostKeyChecking=accept-new "${{ secrets.PRIVATE_EC2_USER }}@$private_host" "COMPOSE_SERVICE='$compose_service' bash -se" <<'PRIVATE_EOF'
+            ssh -i "$PRIVATE_KEY_PATH" -o StrictHostKeyChecking=accept-new "${{ secrets.PRIVATE_EC2_USER }}@${{ secrets.PRIVATE_EC2_BACKEND_HOST }}" "bash -se" <<'PRIVATE_EOF'
             set -euo pipefail
 
             if command -v sudo >/dev/null 2>&1; then
@@ -145,19 +141,14 @@ jobs:
             cat > .env <<EOF
             POSTGRES_USER=${{ secrets.POSTGRES_USER }}
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
-            DB_NAME_VENTAS=${{ secrets.DB_NAME_VENTAS }}
-            DB_NAME_DESPACHOS=${{ secrets.DB_NAME_DESPACHOS }}
+            DB_NAME=${{ secrets.DB_NAME }}
             DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
             EOF
 
+            "${DOCKER_PREFIX[@]}" docker compose pull backend-ventas backend-despachos
             "${DOCKER_PREFIX[@]}" docker compose up -d postgres
-            "${DOCKER_PREFIX[@]}" docker compose pull "$COMPOSE_SERVICE"
-            "${DOCKER_PREFIX[@]}" docker compose up -d --no-deps --force-recreate "$COMPOSE_SERVICE"
-            "${DOCKER_PREFIX[@]}" docker compose ps postgres "$COMPOSE_SERVICE"
+            "${DOCKER_PREFIX[@]}" docker compose up -d --no-deps --force-recreate backend-ventas backend-despachos
+            "${DOCKER_PREFIX[@]}" docker compose ps postgres backend-ventas backend-despachos
 
             "${DOCKER_PREFIX[@]}" docker image prune -f
             PRIVATE_EOF
-            }
-
-            deploy_to_private "${{ secrets.PRIVATE_EC2_VENTAS_HOST }}" "backend-ventas"
-            deploy_to_private "${{ secrets.PRIVATE_EC2_DESPACHOS_HOST }}" "backend-despachos"
