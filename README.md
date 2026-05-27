@@ -404,7 +404,7 @@ DOCKERHUB_USERNAME=tu_usuario_dockerhub
 ## 🔄 Pipeline CI/CD
 
 ```
-push → rama deploy
+push → rama main
          │
          ▼
    GitHub Actions
@@ -421,12 +421,12 @@ push → rama deploy
          │
     ┌────▼─────────────────────────────┐
     │  Job 2: deploy                   │
-    │  • SCP docker-compose.yml → EC2  │
-    │  • SCP init-db/ → EC2            │
-    │  • SSH: crear archivo .env       │
-    │  • SSH: docker compose pull      │
-    │  • SSH: docker compose up -d     │
-    │    --no-deps --force-recreate    │
+    │  • SSH a EC2 pública (bastion)   │
+    │  • SSH EC2 pública -> privada    │
+    │  • Instala git/docker si falta   │
+    │  • Repo sync + .env en privada   │
+    │  • docker compose up postgres    │
+    │  • compose pull + recreate apps  │
     │  • SSH: docker image prune -f    │
     └──────────────────────────────────┘
 ```
@@ -439,9 +439,13 @@ Ve a **Settings → Secrets and variables → Actions** y agrega:
 |---|---|---|
 | `DOCKERHUB_USERNAME` | Usuario de Docker Hub | `miusuario` |
 | `DOCKERHUB_TOKEN` | Access token de Docker Hub | `dckr_pat_xxx...` |
-| `EC2_HOST` | IP pública o DNS de la instancia EC2 | `54.123.45.67` |
-| `EC2_USER` | Usuario SSH (ej. `ubuntu` o `ec2-user`) | `ubuntu` |
-| `EC2_SSH_KEY` | Clave privada PEM completa | `-----BEGIN RSA...` |
+| `PUBLIC_EC2_HOST` | IP pública o DNS de la EC2 pública (bastion) | `54.123.45.67` |
+| `PUBLIC_EC2_USER` | Usuario SSH de la EC2 pública | `ubuntu` |
+| `PUBLIC_EC2_SSH_KEY` | Clave privada PEM para entrar a la EC2 pública | `-----BEGIN RSA...` |
+| `PRIVATE_EC2_HOST` | IP privada o DNS privado de la EC2 privada | `10.0.2.15` |
+| `PRIVATE_EC2_USER` | Usuario SSH de la EC2 privada | `ubuntu` |
+| `PRIVATE_EC2_SSH_KEY` | Clave privada PEM para salto EC2 pública -> privada | `-----BEGIN RSA...` |
+| `REPO_URL` | URL pública del repositorio a clonar/actualizar | `https://github.com/usuario/devops_backend.git` |
 | `POSTGRES_USER` | Usuario de PostgreSQL en producción | `postgres` |
 | `POSTGRES_PASSWORD` | Contraseña de PostgreSQL en producción | `tu_password_seguro` |
 | `DB_NAME_VENTAS` | Nombre BD ventas en producción | `ventas_db` |
@@ -449,11 +453,11 @@ Ve a **Settings → Secrets and variables → Actions** y agrega:
 
 ### Workflow del pipeline
 
-El pipeline se activa automáticamente al hacer `push` a la rama `deploy`:
+El pipeline se activa automáticamente al hacer `push` a la rama `main`:
 
 ```bash
-git checkout -b deploy
-git push origin deploy
+git checkout main
+git push origin main
 ```
 
 **Pasos del pipeline:**
@@ -465,10 +469,13 @@ git push origin deploy
    - Usa cache de GitHub Actions para acelerar builds
 
 2. **Deploy:**
-   - Copia `docker-compose.yml` e `init-db/` a EC2 vía SCP
-   - Crea archivo `.env` en EC2 con los secrets
-   - Descarga las últimas imágenes de Docker Hub
-   - Reinicia solo los contenedores de backend (preserva PostgreSQL)
+   - Conecta a EC2 pública (bastion) y desde ahí a EC2 privada
+   - Instala `git`, `docker` y `docker compose` en EC2 privada solo si faltan
+   - Detecta automáticamente si Docker requiere `sudo`
+   - Clona/actualiza el repositorio en EC2 privada
+   - Crea archivo `.env` en EC2 privada con los secrets
+   - Levanta PostgreSQL primero, luego descarga imágenes y recrea solo backends
+   - Verifica contenedores y endpoints `8081` / `8082`
    - Limpia imágenes antiguas para liberar espacio
 
 ---
@@ -478,7 +485,7 @@ git push origin deploy
 ### Requisitos de la instancia
 
 - **Tipo:** t2.medium o superior (recomendado)
-- **AMI:** Ubuntu 22.04 LTS o Amazon Linux 2023
+- **AMI:** Ubuntu 22.04 LTS (pública y privada)
 - **Storage:** 20 GB mínimo
 - **Security Group:** Configurar puertos
 
@@ -493,18 +500,6 @@ sudo usermod -aG docker ubuntu
 
 # Cerrar sesión y volver a conectar para aplicar cambios
 exit
-```
-
-```bash
-# Amazon Linux 2023
-sudo yum update -y
-sudo yum install -y docker
-sudo systemctl enable --now docker
-sudo usermod -aG docker ec2-user
-
-# Instalar Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
 ```
 
 ### Security Group
@@ -727,7 +722,7 @@ backend-ventas:
 
 **Error:** `Permission denied (publickey)`
 
-**Solución:** Verifica que el secret `EC2_SSH_KEY` contiene la clave PEM **completa**:
+**Solución:** Verifica que los secrets `PUBLIC_EC2_SSH_KEY` y `PRIVATE_EC2_SSH_KEY` contienen las claves PEM **completas**:
 ```
 -----BEGIN RSA PRIVATE KEY-----
 MIIEpAIBAAKCAQEA...
@@ -767,9 +762,9 @@ Este proyecto es de uso académico.
 
 **✅ Todo listo para desplegar en AWS EC2 con GitHub Actions.**
 
-Para iniciar el despliegue, haz push a la rama `deploy`:
+Para iniciar el despliegue, haz push a la rama `main`:
 ```bash
 git add .
 git commit -m "feat: complete PostgreSQL migration with Docker + CI/CD"
-git push origin deploy
+git push origin main
 ```
